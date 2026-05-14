@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dance Fire</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; font-family: 'Rajdhani', sans-serif; }
+
+  #video {
+    position: fixed; top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    object-fit: cover;
+    transform: scaleX(-1);
+    z-index: 1;
+  }
+  #canvas {
+    position: fixed; top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    z-index: 2; pointer-events: none;
+  }
+
+  /* Permission Screen */
+  #permission-screen {
+    position: fixed; inset: 0; z-index: 20;
+    background: #000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 0;
+  }
+  .perm-bg {
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at 50% 60%, #3a0a0088 0%, #1a050088 40%, #000 100%);
+  }
+  .ember {
+    position: absolute;
+    border-radius: 50%;
+    animation: floatEmber linear infinite;
+    pointer-events: none;
+  }
+  @keyframes floatEmber {
+    0%   { transform: translateY(100vh) translateX(0) scale(1); opacity: 0.8; }
+    50%  { transform: translateY(50vh) translateX(var(--dx)) scale(0.8); opacity: 0.6; }
+    100% { transform: translateY(-10vh) translateX(calc(var(--dx)*2)) scale(0.3); opacity: 0; }
+  }
+  .perm-content {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column;
+    align-items: center; gap: 24px;
+  }
+  .perm-icon { font-size: 5rem; filter: drop-shadow(0 0 30px #FF4500); animation: pulse 2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.1)} }
+  .perm-title {
+    font-family: 'Cinzel', serif; font-size: 3.5rem; font-weight: 900;
+    background: linear-gradient(180deg, #FFD700 0%, #FF4500 60%, #8B0000 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    letter-spacing: 6px; text-align: center;
+    filter: drop-shadow(0 0 20px #FF450088);
+  }
+  .perm-sub {
+    font-size: 1rem; color: #FF8C0099; letter-spacing: 3px;
+    text-transform: uppercase; text-align: center;
+  }
+  #allow-btn {
+    padding: 14px 44px;
+    background: linear-gradient(135deg, #FF4500, #FF8C00, #FFD700);
+    border: none; border-radius: 4px;
+    font-family: 'Cinzel', serif; font-size: 1.1rem; font-weight: 700;
+    color: #000; cursor: pointer; letter-spacing: 3px;
+    box-shadow: 0 0 40px #FF450088, inset 0 1px 0 rgba(255,255,255,0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+    text-transform: uppercase;
+  }
+  #allow-btn:hover {
+    transform: scale(1.04);
+    box-shadow: 0 0 70px #FF4500cc, inset 0 1px 0 rgba(255,255,255,0.3);
+  }
+
+  /* HUD */
+  #hud {
+    position: fixed; top: 20px; left: 20px; z-index: 5;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .hud-label {
+    font-family: 'Cinzel', serif; font-size: 0.75rem;
+    color: #FF450099; letter-spacing: 2px; text-transform: uppercase;
+  }
+  #intensity-bar-wrap {
+    width: 160px; height: 4px;
+    background: rgba(255,69,0,0.2); border-radius: 2px; overflow: hidden;
+  }
+  #intensity-bar {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #FF4500, #FFD700);
+    border-radius: 2px;
+    box-shadow: 0 0 8px #FF4500;
+    transition: width 0.1s;
+  }
+  #move-display {
+    font-family: 'Cinzel', serif; font-size: 1rem; font-weight: 700;
+    color: #FFD700; letter-spacing: 3px;
+    text-shadow: 0 0 15px #FF4500;
+  }
+
+  /* Vignette always on top */
+  #vignette {
+    position: fixed; inset: 0; z-index: 3; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.75) 100%);
+  }
+</style>
+</head>
+<body>
+
+<div id="permission-screen">
+  <div class="perm-bg"></div>
+  <div class="perm-content">
+    <div class="perm-icon">🔥</div>
+    <div class="perm-title">DANCE FIRE</div>
+    <div class="perm-sub">Let your body ignite the world</div>
+    <button id="allow-btn">🔥 Activate Camera</button>
+  </div>
+</div>
+
+<video id="video" autoplay playsinline muted></video>
+<canvas id="canvas"></canvas>
+<div id="vignette"></div>
+
+<div id="hud">
+  <div class="hud-label">Energy</div>
+  <div id="intensity-bar-wrap"><div id="intensity-bar"></div></div>
+  <div id="move-display">WAITING...</div>
+</div>
+
+<!-- MediaPipe Pose -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+
+<script>
+(function() {
+  // ─── Setup ───────────────────────────────────────────────────────────────
+  const video    = document.getElementById('video');
+  const canvas   = document.getElementById('canvas');
+  const ctx      = canvas.getContext('2d');
+  const bar      = document.getElementById('intensity-bar');
+  const moveDisp = document.getElementById('move-display');
+  const permScr  = document.getElementById('permission-screen');
+  const allowBtn = document.getElementById('allow-btn');
+
+  let W = canvas.width  = window.innerWidth;
+  let H = canvas.height = window.innerHeight;
+  window.addEventListener('resize', () => {
+    W = canvas.width  = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  });
+
+  function mx(x) { return W - x * W; }
+  function my(y) { return y * H; }
+
+  // ─── Ambient embers on permission screen ─────────────────────────────────
+  const perm = document.getElementById('permission-screen');
+  for (let i = 0; i < 40; i++) {
+    const e = document.createElement('div');
+    e.className = 'ember';
+    const size = Math.random() * 5 + 2;
+    const hue  = Math.random() > 0.5 ? '#FF4500' : '#FFD700';
+    e.style.cssText = `
+      width:${size}px; height:${size}px;
+      background:${hue};
+      left:${Math.random()*100}%;
+      bottom:0;
+      --dx:${(Math.random()-0.5)*200}px;
+      animation-duration:${3+Math.random()*5}s;
+      animation-delay:${Math.random()*5}s;
+      box-shadow:0 0 ${size*3}px ${hue};
+    `;
+    perm.appendChild(e);
+  }
+
+  // ─── Particle Pool ────────────────────────────────────────────────────────
+  const POOL = 3000;
+  const pool = Array.from({length: POOL}, () => ({
+    active:false, x:0, y:0, vx:0, vy:0,
+    life:1, maxLife:1, r:4, type:'fire',
+    color:'#FF4500', alpha:1, px:0, py:0
+  }));
+  let poolCursor = 0;
+
+  function getP() {
+    for (let i = 0; i < POOL; i++) {
+      const p = pool[(poolCursor+i)%POOL];
+      if (!p.active) { poolCursor=(poolCursor+i+1)%POOL; p.active=true; return p; }
+    }
+    const p = pool[poolCursor%POOL]; poolCursor=(poolCursor+1)%POOL; p.active=true; return p;
+  }
+
+  // ─── Fire Colors ─────────────────────────────────────────────────────────
+  const FIRE_COLORS = ['#FF1A00','#FF4500','#FF6600','#FF8C00','#FFA500','#FFD700','#FFEC8B'];
+  function fireColor(life) {
+    const i = Math.floor((1-life) * (FIRE_COLORS.length-1));
+    return FIRE_COLORS[Math.min(i, FIRE_COLORS.length-1)];
+  }
+
+  // ─── Trail System ─────────────────────────────────────────────────────────
+  class TrailSystem {
+    constructor() { this.trails = {}; }
+    add(id, x, y) {
+      if (!this.trails[id]) this.trails[id] = [];
+      this.trails[id].push({ x, y, t: performance.now() });
+    }
+    update() {
+      const now = performance.now();
+      for (const id in this.trails)
+        this.trails[id] = this.trails[id].filter(p => now - p.t < 600);
+    }
+    draw(alpha) {
+      for (const id in this.trails) {
+        const pts = this.trails[id];
+        if (pts.length < 2) continue;
+        const now = performance.now();
+        ctx.save();
+        ctx.lineCap = 'round';
+        for (let i = 1; i < pts.length; i++) {
+          const age  = (now - pts[i].t) / 600;
+          const a    = (1 - age) * 0.85 * alpha;
+          const w    = (1 - age) * 6 + 1;
+          const col  = fireColor(1 - age);
+          ctx.globalAlpha = a;
+          ctx.strokeStyle = col;
+          ctx.lineWidth   = w;
+          ctx.shadowBlur  = 20;
+          ctx.shadowColor = '#FF4500';
+          ctx.beginPath();
+          if (i === 1) {
+            ctx.moveTo(pts[0].x, pts[0].y);
+            ctx.lineTo(pts[1].x, pts[1].y);
+          } else {
+            const mx2 = (pts[i-1].x + pts[i].x) / 2;
+            const my2 = (pts[i-1].y + pts[i].y) / 2;
+            ctx.moveTo((pts[i-2].x+pts[i-1].x)/2, (pts[i-2].y+pts[i-1].y)/2);
+            ctx.quadraticCurveTo(pts[i-1].x, pts[i-1].y, mx2, my2);
+          }
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  // ─── Fire Particle System ─────────────────────────────────────────────────
+  class FireSystem {
+    emit(x, y, intensity, count) {
+      const n = Math.floor(count * intensity);
+      for (let i = 0; i < n; i++) {
+        const p = getP();
+        p.type = 'fire';
+        p.x = x + (Math.random()-0.5)*20;
+        p.y = y + (Math.random()-0.5)*20;
+        p.vx = (Math.random()-0.5)*2.5 * intensity;
+        p.vy = -(1 + Math.random()*4) * intensity;
+        p.r  = 4 + Math.random()*10 * intensity;
+        p.life = 1;
+        p.maxLife = 0.5 + Math.random()*0.7;
+        p.color = FIRE_COLORS[Math.floor(Math.random()*3)];
+      }
+    }
+    draw(alpha) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      pool.forEach(p => {
+        if (!p.active || p.type !== 'fire') return;
+        p.vx += (Math.random()-0.5)*0.3;
+        p.x  += p.vx;
+        p.y  += p.vy;
+        p.vy *= 0.97;
+        p.r  *= 0.97;
+        p.life -= 1/(p.maxLife*60);
+        if (p.life <= 0 || p.r < 0.5) { p.active=false; return; }
+        const a = p.life * 0.45 * alpha;
+        ctx.globalAlpha = Math.max(0, a);
+        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+        g.addColorStop(0, '#FFEC8B');
+        g.addColorStop(0.3, fireColor(p.life));
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+  }
+
+  // ─── Explosion System ─────────────────────────────────────────────────────
+  class ExplosionSystem {
+    explode(x, y, force) {
+      const count = Math.floor(30 + force * 40);
+      for (let i = 0; i < count; i++) {
+        const p   = getP();
+        const ang = Math.random() * Math.PI * 2;
+        const spd = (3 + Math.random() * 10) * force;
+        p.type = 'explode';
+        p.px = p.x = x; p.py = p.y = y;
+        p.vx = Math.cos(ang) * spd;
+        p.vy = Math.sin(ang) * spd - 2;
+        p.r  = 2 + Math.random() * 4;
+        p.life = 1; p.maxLife = 0.6 + Math.random() * 0.4;
+        p.color = FIRE_COLORS[Math.floor(Math.random()*FIRE_COLORS.length)];
+      }
+    }
+    draw(alpha) {
+      pool.forEach(p => {
+        if (!p.active || p.type !== 'explode') return;
+        p.vy += 0.25;
+        const ox = p.x, oy = p.y;
+        p.x += p.vx; p.y += p.vy;
+        p.vx *= 0.97;
+        p.life -= 1/(p.maxLife*60);
+        if (p.life <= 0) { p.active=false; return; }
+        ctx.save();
+        ctx.globalAlpha = p.life * 0.9 * alpha;
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth   = p.r * p.life;
+        ctx.shadowBlur  = 12; ctx.shadowColor = p.color;
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(ox, oy); ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
+  }
+
+  // ─── Aura System ──────────────────────────────────────────────────────────
+  class AuraSystem {
+    constructor() { this.nodes = []; }
+    setNodes(nodes) { this.nodes = nodes; }
+    draw(intensity, alpha) {
+      if (this.nodes.length < 2 || intensity < 0.1) return;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(0.6, intensity * 0.7) * alpha;
+
+      const connections = [
+        [11,12],[11,13],[13,15],[12,14],[14,16],
+        [11,23],[12,24],[23,24],[23,25],[25,27],
+        [24,26],[26,28]
+      ];
+      connections.forEach(([a,b]) => {
+        const na = this.nodes[a], nb = this.nodes[b];
+        if (!na || !nb) return;
+        const grad = ctx.createLinearGradient(na.x, na.y, nb.x, nb.y);
+        grad.addColorStop(0, '#FF4500');
+        grad.addColorStop(0.5, '#FFD700');
+        grad.addColorStop(1, '#FF4500');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth   = 2 + intensity * 6;
+        ctx.shadowBlur  = 20 + intensity * 30;
+        ctx.shadowColor = '#FF4500';
+        ctx.beginPath();
+        ctx.moveTo(na.x, na.y);
+        ctx.lineTo(nb.x, nb.y);
+        ctx.stroke();
+      });
+
+      this.nodes.forEach((n, i) => {
+        if (!n || [1,2,3,4,5,6,7,8,9,10].includes(i)) return;
+        const r = 8 + intensity * 14;
+        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r);
+        g.addColorStop(0, '#FFD700');
+        g.addColorStop(0.5, '#FF4500');
+        g.addColorStop(1, 'transparent');
+        ctx.globalAlpha = Math.min(0.8, intensity) * alpha;
+        ctx.fillStyle   = g;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, r, 0, Math.PI*2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+  }
+
+  // ─── Lava Ground System ───────────────────────────────────────────────────
+  class LavaSystem {
+    constructor() { this.pools = []; this.t = 0; }
+    emit(x, y, intensity) {
+      if (Math.random() > intensity * 0.4) return;
+      this.pools.push({ x, y, r: 10 + Math.random()*30*intensity, life: 1, vx:(Math.random()-0.5)*2 });
+    }
+    draw(alpha) {
+      this.t += 0.03;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      this.pools = this.pools.filter(p => p.life > 0);
+      this.pools.forEach(p => {
+        p.life -= 0.008;
+        p.x += p.vx;
+        p.r += 0.3;
+        const a = p.life * 0.35 * alpha;
+        if (a <= 0) return;
+        ctx.globalAlpha = a;
+        const wave = Math.sin(this.t + p.x*0.05) * 5;
+        const g = ctx.createRadialGradient(p.x, p.y+wave, 0, p.x, p.y+wave, p.r);
+        g.addColorStop(0, '#FFD700');
+        g.addColorStop(0.4, '#FF4500');
+        g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y+wave, p.r, p.r*0.4, 0, 0, Math.PI*2);
+        ctx.fill();
+      });
+      ctx.restore();
+    }
+  }
+
+  // ─── Systems ──────────────────────────────────────────────────────────────
+  const trailSys   = new TrailSystem();
+  const fireSys    = new FireSystem();
+  const explodeSys = new ExplosionSystem();
+  const auraSys    = new AuraSystem();
+  const lavaSys    = new LavaSystem();
+
+  // ─── Motion Detection ─────────────────────────────────────────────────────
+  let prevLandmarks = null;
+  let intensity = 0;
+  let smoothIntensity = 0;
+  let noBodyFrames = 0;
+  let globalFade = 0;
+  let lastExplodeTime = 0;
+
+  const TRAIL_JOINTS = [15, 16, 13, 14, 27, 28, 25, 26];
+  const FIRE_JOINTS  = [15, 16, 27, 28];
+
+  let lastResults = null;
+
+  function onResults(results) {
+    lastResults = results;
+  }
+
+  function computeIntensity(lms) {
+    if (!prevLandmarks) { prevLandmarks = lms; return 0; }
+    let totalDelta = 0;
+    const key = [13,14,15,16,23,24,25,26,27,28];
+    key.forEach(i => {
+      if (!lms[i] || !prevLandmarks[i]) return;
+      const dx = lms[i].x - prevLandmarks[i].x;
+      const dy = lms[i].y - prevLandmarks[i].y;
+      totalDelta += Math.sqrt(dx*dx + dy*dy);
+    });
+    prevLandmarks = lms;
+    return Math.min(1, totalDelta * 18);
+  }
+
+  function getLabel(intens) {
+    if (intens < 0.05) return 'IDLE 🔥';
+    if (intens < 0.25) return 'WARMING UP ✨';
+    if (intens < 0.5)  return 'ON FIRE 🔥';
+    if (intens < 0.75) return 'BLAZING 🔥🔥';
+    return 'INFERNO 🔥🔥🔥';
+  }
+
+  // ─── Render Loop ──────────────────────────────────────────────────────────
+  function render() {
+    requestAnimationFrame(render);
+    ctx.clearRect(0, 0, W, H);
+
+    const results = lastResults;
+    const hasBody = results && results.poseLandmarks && results.poseLandmarks.length > 0;
+
+    if (!hasBody) {
+      noBodyFrames++;
+      if (noBodyFrames > 5) globalFade = Math.max(0, globalFade - 0.04);
+      intensity = Math.max(0, intensity - 0.05);
+    } else {
+      noBodyFrames = 0;
+      globalFade = Math.min(1, globalFade + 0.08);
+    }
+
+    smoothIntensity = smoothIntensity * 0.85 + intensity * 0.15;
+    bar.style.width = (smoothIntensity * 100) + '%';
+    moveDisp.textContent = hasBody ? getLabel(smoothIntensity) : 'WAITING...';
+
+    if (!hasBody) {
+      trailSys.update();
+      trailSys.draw(globalFade);
+      fireSys.draw(globalFade);
+      explodeSys.draw(globalFade);
+      lavaSys.draw(globalFade);
+      return;
+    }
+
+    const lms = results.poseLandmarks;
+    intensity = computeIntensity(lms);
+    const nodes = lms.map(l => ({ x: mx(l.x), y: my(l.y), v: l.visibility || 0 }));
+    auraSys.setNodes(nodes);
+
+    TRAIL_JOINTS.forEach(i => {
+      if (nodes[i] && nodes[i].v > 0.5) trailSys.add(i, nodes[i].x, nodes[i].y);
+    });
+
+    FIRE_JOINTS.forEach(i => {
+      if (nodes[i] && nodes[i].v > 0.4) {
+        fireSys.emit(nodes[i].x, nodes[i].y, Math.max(0.2, intensity), 8);
+      }
+    });
+
+    [27, 28].forEach(i => {
+      if (nodes[i] && nodes[i].v > 0.4) lavaSys.emit(nodes[i].x, nodes[i].y, intensity);
+    });
+
+    const now = performance.now();
+    if (intensity > 0.6 && now - lastExplodeTime > 400) {
+      const joints = [15,16,27,28].filter(i => nodes[i] && nodes[i].v > 0.5);
+      if (joints.length > 0) {
+        const j = joints[Math.floor(Math.random()*joints.length)];
+        explodeSys.explode(nodes[j].x, nodes[j].y, intensity);
+        lastExplodeTime = now;
+      }
+    }
+
+    trailSys.update();
+    auraSys.draw(smoothIntensity, globalFade);
+    fireSys.draw(globalFade);
+    lavaSys.draw(globalFade);
+    trailSys.draw(globalFade);
+    explodeSys.draw(globalFade);
+
+    if (intensity > 0.35 && nodes[23] && nodes[24]) {
+      const hx = (nodes[23].x + nodes[24].x) / 2;
+      const hy = (nodes[23].y + nodes[24].y) / 2;
+      fireSys.emit(hx, hy, intensity * 0.7, 5);
+    }
+  }
+
+  // ─── Start ────────────────────────────────────────────────────────────────
+  function startTracking() {
+    const pose = new Pose({
+      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`
+    });
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    pose.onResults(onResults);
+
+    const camera = new Camera(video, {
+      onFrame: async () => { await pose.send({ image: video }); },
+      width: 1280, height: 720
+    });
+    camera.start();
+    render();
+  }
+
+  allowBtn.addEventListener('click', () => {
+    navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: 'user' } })
+      .then(stream => {
+        video.srcObject = stream;
+        permScr.style.transition = 'opacity 0.6s';
+        permScr.style.opacity = '0';
+        setTimeout(() => permScr.style.display = 'none', 600);
+        startTracking();
+      })
+      .catch(() => {
+        allowBtn.textContent = '⚠ Permission Denied';
+      });
+  });
+
+})();
+</script>
+</body>
+</html>
